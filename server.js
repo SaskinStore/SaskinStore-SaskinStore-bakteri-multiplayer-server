@@ -4,7 +4,7 @@ const { randomUUID } = require("crypto");
 
 const PORT = process.env.PORT || 10000;
 const WORLD = { width: 4200, height: 2600 };
-const TICK_RATE = 20;
+const TICK_RATE = 30;
 const BOT_COUNT = 8;
 
 const server = http.createServer((req, res) => {
@@ -63,7 +63,7 @@ function makeBaseEntity(name = "Oyuncu") {
     level: 1,
     formKey: "mycoplasma",
     size: 12,
-    speed: 2.35,
+    speed: 3.2,
     damage: 10,
 
     maxHp: 100,
@@ -113,13 +113,13 @@ function makeBot(index) {
 
 function applyStatsFromLevel(entity) {
   const forms = [
-    { key: "mycoplasma", size: 12, speed: 2.35, maxHp: 100, damage: 10 },
-    { key: "amoeba", size: 17, speed: 2.05, maxHp: 122, damage: 13 },
-    { key: "paramecium", size: 15, speed: 2.55, maxHp: 96, damage: 11 },
-    { key: "euglena", size: 18, speed: 2.28, maxHp: 106, damage: 12 },
-    { key: "yeast", size: 21, speed: 1.92, maxHp: 132, damage: 14 },
-    { key: "protozoa", size: 24, speed: 2.10, maxHp: 150, damage: 16 },
-    { key: "macrocell", size: 28, speed: 1.80, maxHp: 180, damage: 18 }
+    { key: "mycoplasma", size: 12, speed: 3.2, maxHp: 100, damage: 10 },
+    { key: "amoeba", size: 17, speed: 2.9, maxHp: 122, damage: 13 },
+    { key: "paramecium", size: 15, speed: 3.35, maxHp: 96, damage: 11 },
+    { key: "euglena", size: 18, speed: 3.05, maxHp: 106, damage: 12 },
+    { key: "yeast", size: 21, speed: 2.65, maxHp: 132, damage: 14 },
+    { key: "protozoa", size: 24, speed: 2.85, maxHp: 150, damage: 16 },
+    { key: "macrocell", size: 28, speed: 2.55, maxHp: 180, damage: 18 }
   ];
 
   const idx = clamp(entity.level - 1, 0, forms.length - 1);
@@ -162,7 +162,7 @@ function resetEntity(entity) {
 
   entity.isDead = false;
   entity.respawnTimer = 0;
-  entity.pvpCooldown = 60;
+  entity.pvpCooldown = 45;
 
   if (entity.isBot) {
     entity.aiTimer = Math.floor(rand(20, 90));
@@ -231,7 +231,7 @@ function grantKillRewards(killer) {
   killer.xp = clamp(killer.xp + 25, 0, 999999);
   applyEvolutionIfNeeded(killer);
   killer.hp = clamp(killer.hp + killer.maxHp * 0.18, 0, killer.maxHp);
-  killer.pvpCooldown = 8;
+  killer.pvpCooldown = 6;
 }
 
 function killEntity(victim, killer = null) {
@@ -285,13 +285,9 @@ function chooseBotTarget(bot) {
     const d = dist(bot.x, bot.y, e.x, e.y);
     let score = 0;
 
-    if (bot.size > e.size) {
-      score += 200 - d * 0.25;
-    } else if (e.size > bot.size) {
-      score -= 160 - d * 0.2;
-    } else {
-      score -= d * 0.05;
-    }
+    if (bot.size > e.size) score += 220 - d * 0.25;
+    else if (e.size > bot.size) score -= 180 - d * 0.2;
+    else score -= d * 0.05;
 
     if (score > bestScore) {
       bestScore = score;
@@ -323,7 +319,7 @@ function updateBots() {
 
     if (!target || bot.aiTimer <= 0) {
       target = chooseBotTarget(bot);
-      bot.aiTimer = Math.floor(rand(25, 80));
+      bot.aiTimer = Math.floor(rand(20, 70));
     }
 
     let tx = bot.x + Math.cos(bot.roamAngle) * 140;
@@ -337,11 +333,11 @@ function updateBots() {
         const dx = bot.x - target.x;
         const dy = bot.y - target.y;
         const len = Math.hypot(dx, dy) || 1;
-        tx = bot.x + (dx / len) * 180;
-        ty = bot.y + (dy / len) * 180;
+        tx = bot.x + (dx / len) * 200;
+        ty = bot.y + (dy / len) * 200;
       }
     } else {
-      bot.roamAngle += rand(-0.4, 0.4);
+      bot.roamAngle += rand(-0.45, 0.45);
       tx = bot.x + Math.cos(bot.roamAngle) * 160;
       ty = bot.y + Math.sin(bot.roamAngle) * 160;
     }
@@ -366,11 +362,8 @@ function handlePvP() {
       const d = dist(a.x, a.y, b.x, b.y);
       if (d > a.size + b.size + 4) continue;
 
-      if (a.size > b.size) {
-        killEntity(b, a);
-      } else if (b.size > a.size) {
-        killEntity(a, b);
-      }
+      if (a.size > b.size) killEntity(b, a);
+      else if (b.size > a.size) killEntity(a, b);
     }
   }
 }
@@ -380,11 +373,8 @@ function tick() {
 
   for (const e of allEntities()) {
     if (e.isDead) {
-      if (e.respawnTimer > 0) {
-        e.respawnTimer--;
-      } else {
-        resetEntity(e);
-      }
+      if (e.respawnTimer > 0) e.respawnTimer--;
+      else resetEntity(e);
       continue;
     }
 
@@ -407,9 +397,7 @@ function tick() {
       e.xpNeed = 200;
     }
 
-    if (e.pvpCooldown > 0) {
-      e.pvpCooldown--;
-    }
+    if (e.pvpCooldown > 0) e.pvpCooldown--;
   }
 
   handlePvP();
