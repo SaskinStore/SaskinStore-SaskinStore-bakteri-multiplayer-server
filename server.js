@@ -13,13 +13,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+  res.writeHead(404);
   res.end("Not found");
 });
 
@@ -34,8 +28,9 @@ function makePlayer() {
   return {
     id: randomUUID(),
     name: "Oyuncu",
-    x: WORLD.width / 2 + Math.random() * 120 - 60,
-    y: WORLD.height / 2 + Math.random() * 120 - 60,
+
+    x: WORLD.width / 2,
+    y: WORLD.height / 2,
     vx: 0,
     vy: 0,
     angle: 0,
@@ -44,6 +39,8 @@ function makePlayer() {
     formKey: "mycoplasma",
     size: 12,
     speed: 2.35,
+    damage: 10,
+
     maxHp: 100,
     hp: 100,
     xp: 0,
@@ -58,8 +55,6 @@ function makePlayer() {
       my: WORLD.height / 2
     },
 
-    boss: null,
-    teleportGate: null,
     ws: null
   };
 }
@@ -107,6 +102,7 @@ function tick() {
     p.y = clamp(p.y + p.vy, 0, WORLD.height);
     p.angle = Math.atan2(ny, nx);
 
+    // Makro hücre limiti
     if (p.formKey === "macrocell") {
       p.xp = Math.min(p.xp, 200);
       p.xpNeed = 200;
@@ -118,24 +114,7 @@ function tick() {
 
     p.ws.send(JSON.stringify({
       type: "state",
-      self: {
-        id: p.id,
-        name: p.name,
-        x: p.x,
-        y: p.y,
-        angle: p.angle,
-        level: p.level,
-        formKey: p.formKey,
-        size: p.size,
-        hp: p.hp,
-        maxHp: p.maxHp,
-        xp: p.xp,
-        xpNeed: p.xpNeed,
-        score: p.score,
-        inHideZone: p.inHideZone,
-        boss: p.boss,
-        teleportGate: p.teleportGate
-      },
+      self: p,
       others: visiblePlayersFor(p.id)
     }));
   }
@@ -158,41 +137,46 @@ wss.on("connection", (ws) => {
       const p = players.get(player.id);
       if (!p) return;
 
+      // Hareket input
       if (msg.type === "input") {
         if (typeof msg.mx === "number") p.input.mx = clamp(msg.mx, 0, WORLD.width);
         if (typeof msg.my === "number") p.input.my = clamp(msg.my, 0, WORLD.height);
       }
 
+      // İsim
       if (msg.type === "profile") {
         if (typeof msg.name === "string") {
-          const trimmed = msg.name.trim();
-          p.name = trimmed ? trimmed.slice(0, 24) : "Oyuncu";
+          p.name = msg.name.slice(0, 24);
         }
       }
 
+      // Saklanma
       if (msg.type === "hide") {
         p.inHideZone = !!msg.active;
         p.isHiddenFromPlayers = !!msg.active;
       }
 
-      if (msg.type === "gainXp") {
-        if (typeof msg.amount === "number") {
-          p.xp = clamp(p.xp + msg.amount, 0, 999);
-        }
-      }
-
-      // İSTEMCİDEN GERÇEK OYUNCU DURUMUNU SENKRONLA
+      // 🔥 EN ÖNEMLİ KISIM (SYNC)
       if (msg.type === "sync") {
+
         if (typeof msg.level === "number") {
-          p.level = clamp(Math.floor(msg.level), 1, 999);
+          p.level = clamp(msg.level, 1, 999);
         }
 
         if (typeof msg.formKey === "string") {
-          p.formKey = msg.formKey.slice(0, 32);
+          p.formKey = msg.formKey;
         }
 
         if (typeof msg.size === "number") {
           p.size = clamp(msg.size, 4, 999);
+        }
+
+        if (typeof msg.speed === "number") {
+          p.speed = clamp(msg.speed, 0.1, 20);
+        }
+
+        if (typeof msg.damage === "number") {
+          p.damage = clamp(msg.damage, 1, 9999);
         }
 
         if (typeof msg.hp === "number") {
@@ -205,15 +189,15 @@ wss.on("connection", (ws) => {
         }
 
         if (typeof msg.score === "number") {
-          p.score = clamp(msg.score, 0, 999999999);
+          p.score = msg.score;
         }
 
         if (typeof msg.xp === "number") {
-          p.xp = clamp(msg.xp, 0, 999999);
+          p.xp = msg.xp;
         }
 
         if (typeof msg.xpNeed === "number") {
-          p.xpNeed = clamp(msg.xpNeed, 1, 999999);
+          p.xpNeed = msg.xpNeed;
         }
 
         if (typeof msg.x === "number") {
@@ -232,17 +216,10 @@ wss.on("connection", (ws) => {
           p.inHideZone = msg.inHideZone;
           p.isHiddenFromPlayers = msg.inHideZone;
         }
-
-        if (msg.boss !== undefined) {
-          p.boss = msg.boss;
-        }
-
-        if (msg.teleportGate !== undefined) {
-          p.teleportGate = msg.teleportGate;
-        }
       }
+
     } catch (e) {
-      console.log("Mesaj parse hatası:", e.message);
+      console.log("Hata:", e.message);
     }
   });
 
@@ -250,13 +227,11 @@ wss.on("connection", (ws) => {
     players.delete(player.id);
   });
 
-  ws.on("error", (err) => {
-    console.log("Socket error:", err.message);
-  });
+  ws.on("error", () => {});
 });
 
 setInterval(tick, 1000 / TICK_RATE);
 
 server.listen(PORT, () => {
-  console.log(`Server listening on ${PORT}`);
+  console.log("Server çalışıyor:", PORT);
 });
