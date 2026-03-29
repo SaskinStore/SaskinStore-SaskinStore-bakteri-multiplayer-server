@@ -42,8 +42,8 @@ function dist(ax, ay, bx, by) {
 
 function randomSpawn() {
   return {
-    x: WORLD.width / 2 + Math.random() * 240 - 120,
-    y: WORLD.height / 2 + Math.random() * 240 - 120
+    x: rand(80, WORLD.width - 80),
+    y: rand(80, WORLD.height - 80)
   };
 }
 
@@ -63,7 +63,7 @@ function makeBaseEntity(name = "Oyuncu") {
     level: 1,
     formKey: "mycoplasma",
     size: 12,
-    speed: 3.2,
+    speed: 2.8,
     damage: 10,
 
     maxHp: 100,
@@ -113,13 +113,13 @@ function makeBot(index) {
 
 function applyStatsFromLevel(entity) {
   const forms = [
-    { key: "mycoplasma", size: 12, speed: 3.2, maxHp: 100, damage: 10 },
-    { key: "amoeba", size: 17, speed: 2.9, maxHp: 122, damage: 13 },
-    { key: "paramecium", size: 15, speed: 3.35, maxHp: 96, damage: 11 },
-    { key: "euglena", size: 18, speed: 3.05, maxHp: 106, damage: 12 },
-    { key: "yeast", size: 21, speed: 2.65, maxHp: 132, damage: 14 },
-    { key: "protozoa", size: 24, speed: 2.85, maxHp: 150, damage: 16 },
-    { key: "macrocell", size: 28, speed: 2.55, maxHp: 180, damage: 18 }
+    { key: "mycoplasma", size: 12, speed: 2.8, maxHp: 100, damage: 10 },
+    { key: "amoeba", size: 17, speed: 2.6, maxHp: 122, damage: 13 },
+    { key: "paramecium", size: 15, speed: 2.95, maxHp: 96, damage: 11 },
+    { key: "euglena", size: 18, speed: 2.75, maxHp: 106, damage: 12 },
+    { key: "yeast", size: 21, speed: 2.45, maxHp: 132, damage: 14 },
+    { key: "protozoa", size: 24, speed: 2.55, maxHp: 150, damage: 16 },
+    { key: "macrocell", size: 28, speed: 2.3, maxHp: 180, damage: 18 }
   ];
 
   const idx = clamp(entity.level - 1, 0, forms.length - 1);
