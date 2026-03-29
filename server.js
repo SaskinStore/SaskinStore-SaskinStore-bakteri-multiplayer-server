@@ -13,7 +13,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  res.writeHead(404);
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
   res.end("Not found");
 });
 
@@ -24,13 +30,26 @@ function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
+function dist(ax, ay, bx, by) {
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function randomSpawn() {
+  return {
+    x: WORLD.width / 2 + Math.random() * 240 - 120,
+    y: WORLD.height / 2 + Math.random() * 240 - 120
+  };
+}
+
 function makePlayer() {
+  const spawn = randomSpawn();
+
   return {
     id: randomUUID(),
     name: "Oyuncu",
 
-    x: WORLD.width / 2,
-    y: WORLD.height / 2,
+    x: spawn.x,
+    y: spawn.y,
     vx: 0,
     vy: 0,
     angle: 0,
@@ -51,12 +70,47 @@ function makePlayer() {
     isHiddenFromPlayers: false,
 
     input: {
-      mx: WORLD.width / 2,
-      my: WORLD.height / 2
+      mx: spawn.x,
+      my: spawn.y
     },
 
-    ws: null
+    ws: null,
+    isDead: false,
+    respawnTimer: 0,
+    pvpCooldown: 0
   };
+}
+
+function resetPlayer(player) {
+  const spawn = randomSpawn();
+
+  player.x = spawn.x;
+  player.y = spawn.y;
+  player.vx = 0;
+  player.vy = 0;
+  player.angle = 0;
+
+  player.level = 1;
+  player.formKey = "mycoplasma";
+  player.size = 12;
+  player.speed = 2.35;
+  player.damage = 10;
+
+  player.maxHp = 100;
+  player.hp = 100;
+  player.xp = 0;
+  player.xpNeed = 30;
+  player.score = 0;
+
+  player.inHideZone = false;
+  player.isHiddenFromPlayers = false;
+
+  player.input.mx = spawn.x;
+  player.input.my = spawn.y;
+
+  player.isDead = false;
+  player.respawnTimer = 0;
+  player.pvpCooldown = 60;
 }
 
 function visiblePlayersFor(viewerId) {
@@ -64,6 +118,7 @@ function visiblePlayersFor(viewerId) {
 
   for (const p of players.values()) {
     if (p.id === viewerId) continue;
+    if (p.isDead) continue;
     if (p.isHiddenFromPlayers) continue;
 
     out.push({
@@ -86,8 +141,69 @@ function visiblePlayersFor(viewerId) {
   return out;
 }
 
+function sendToPlayer(player, payload) {
+  if (!player.ws || player.ws.readyState !== WebSocket.OPEN) return;
+  player.ws.send(JSON.stringify(payload));
+}
+
+function killPlayer(victim, killer = null) {
+  if (victim.isDead) return;
+
+  victim.isDead = true;
+  victim.respawnTimer = 60; // 3 saniye civarı
+  victim.hp = 0;
+  victim.inHideZone = false;
+  victim.isHiddenFromPlayers = false;
+
+  sendToPlayer(victim, {
+    type: "death",
+    by: killer ? killer.name : "Bilinmiyor"
+  });
+
+  if (killer) {
+    killer.score += 50;
+    killer.xp = clamp(killer.xp + 25, 0, 999999);
+    killer.hp = clamp(killer.hp + killer.maxHp * 0.18, 0, killer.maxHp);
+    killer.pvpCooldown = 8;
+  }
+}
+
+function handlePvP() {
+  const list = [...players.values()].filter((p) => !p.isDead);
+
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i];
+      const b = list[j];
+
+      if (a.inHideZone || b.inHideZone) continue;
+      if (a.isHiddenFromPlayers || b.isHiddenFromPlayers) continue;
+      if (a.pvpCooldown > 0 || b.pvpCooldown > 0) continue;
+
+      const d = dist(a.x, a.y, b.x, b.y);
+      if (d > a.size + b.size + 4) continue;
+
+      // Büyük küçük yeme mantığı
+      if (a.size >= b.size * 1.08) {
+        killPlayer(b, a);
+      } else if (b.size >= a.size * 1.08) {
+        killPlayer(a, b);
+      }
+    }
+  }
+}
+
 function tick() {
   for (const p of players.values()) {
+    if (p.isDead) {
+      if (p.respawnTimer > 0) {
+        p.respawnTimer--;
+      } else {
+        resetPlayer(p);
+      }
+      continue;
+    }
+
     const dx = p.input.mx - p.x;
     const dy = p.input.my - p.y;
     const len = Math.hypot(dx, dy) || 1;
@@ -102,21 +218,43 @@ function tick() {
     p.y = clamp(p.y + p.vy, 0, WORLD.height);
     p.angle = Math.atan2(ny, nx);
 
-    // Makro hücre limiti
     if (p.formKey === "macrocell") {
       p.xp = Math.min(p.xp, 200);
       p.xpNeed = 200;
     }
+
+    if (p.pvpCooldown > 0) {
+      p.pvpCooldown--;
+    }
   }
 
-  for (const p of players.values()) {
-    if (!p.ws || p.ws.readyState !== WebSocket.OPEN) continue;
+  handlePvP();
 
-    p.ws.send(JSON.stringify({
+  for (const p of players.values()) {
+    sendToPlayer(p, {
       type: "state",
-      self: p,
+      self: {
+        id: p.id,
+        name: p.name,
+        x: p.x,
+        y: p.y,
+        angle: p.angle,
+        level: p.level,
+        formKey: p.formKey,
+        size: p.size,
+        speed: p.speed,
+        damage: p.damage,
+        hp: p.hp,
+        maxHp: p.maxHp,
+        xp: p.xp,
+        xpNeed: p.xpNeed,
+        score: p.score,
+        inHideZone: p.inHideZone,
+        isDead: p.isDead,
+        respawnTimer: p.respawnTimer
+      },
       others: visiblePlayersFor(p.id)
-    }));
+    });
   }
 }
 
@@ -137,34 +275,30 @@ wss.on("connection", (ws) => {
       const p = players.get(player.id);
       if (!p) return;
 
-      // Hareket input
       if (msg.type === "input") {
         if (typeof msg.mx === "number") p.input.mx = clamp(msg.mx, 0, WORLD.width);
         if (typeof msg.my === "number") p.input.my = clamp(msg.my, 0, WORLD.height);
       }
 
-      // İsim
       if (msg.type === "profile") {
         if (typeof msg.name === "string") {
-          p.name = msg.name.slice(0, 24);
+          const trimmed = msg.name.trim();
+          p.name = trimmed ? trimmed.slice(0, 24) : "Oyuncu";
         }
       }
 
-      // Saklanma
       if (msg.type === "hide") {
         p.inHideZone = !!msg.active;
         p.isHiddenFromPlayers = !!msg.active;
       }
 
-      // 🔥 EN ÖNEMLİ KISIM (SYNC)
       if (msg.type === "sync") {
-
         if (typeof msg.level === "number") {
-          p.level = clamp(msg.level, 1, 999);
+          p.level = clamp(Math.floor(msg.level), 1, 999);
         }
 
         if (typeof msg.formKey === "string") {
-          p.formKey = msg.formKey;
+          p.formKey = msg.formKey.slice(0, 32);
         }
 
         if (typeof msg.size === "number") {
@@ -189,15 +323,15 @@ wss.on("connection", (ws) => {
         }
 
         if (typeof msg.score === "number") {
-          p.score = msg.score;
+          p.score = clamp(msg.score, 0, 999999999);
         }
 
         if (typeof msg.xp === "number") {
-          p.xp = msg.xp;
+          p.xp = clamp(msg.xp, 0, 999999);
         }
 
         if (typeof msg.xpNeed === "number") {
-          p.xpNeed = msg.xpNeed;
+          p.xpNeed = clamp(msg.xpNeed, 1, 999999);
         }
 
         if (typeof msg.x === "number") {
@@ -217,9 +351,8 @@ wss.on("connection", (ws) => {
           p.isHiddenFromPlayers = msg.inHideZone;
         }
       }
-
     } catch (e) {
-      console.log("Hata:", e.message);
+      console.log("Mesaj parse hatası:", e.message);
     }
   });
 
@@ -227,11 +360,13 @@ wss.on("connection", (ws) => {
     players.delete(player.id);
   });
 
-  ws.on("error", () => {});
+  ws.on("error", (err) => {
+    console.log("Socket error:", err.message);
+  });
 });
 
 setInterval(tick, 1000 / TICK_RATE);
 
 server.listen(PORT, () => {
-  console.log("Server çalışıyor:", PORT);
+  console.log(`Server listening on ${PORT}`);
 });
