@@ -134,7 +134,9 @@ function visiblePlayersFor(viewerId) {
       maxHp: p.maxHp,
       xp: p.xp,
       xpNeed: p.xpNeed,
-      score: p.score
+      score: p.score,
+      speed: p.speed,
+      damage: p.damage
     });
   }
 
@@ -150,7 +152,7 @@ function killPlayer(victim, killer = null) {
   if (victim.isDead) return;
 
   victim.isDead = true;
-  victim.respawnTimer = 60; // 3 saniye civarı
+  victim.respawnTimer = 60;
   victim.hp = 0;
   victim.inHideZone = false;
   victim.isHiddenFromPlayers = false;
@@ -183,10 +185,9 @@ function handlePvP() {
       const d = dist(a.x, a.y, b.x, b.y);
       if (d > a.size + b.size + 4) continue;
 
-      // Büyük küçük yeme mantığı
-      if (a.size >= b.size * 1.08) {
+      if (a.size > b.size) {
         killPlayer(b, a);
-      } else if (b.size >= a.size * 1.08) {
+      } else if (b.size > a.size) {
         killPlayer(a, b);
       }
     }
