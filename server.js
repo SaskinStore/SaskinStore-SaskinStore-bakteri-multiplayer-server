@@ -7,6 +7,16 @@ const WORLD = { width: 4200, height: 2600 };
 const TICK_RATE = 30;
 const BOT_COUNT = 8;
 
+const FORM_ORDER = [
+  { key: "mycoplasma", size: 12, speed: 2.9, maxHp: 100, damage: 10 },
+  { key: "amoeba", size: 16, speed: 2.7, maxHp: 122, damage: 12 },
+  { key: "paramecium", size: 18, speed: 3.1, maxHp: 110, damage: 13 },
+  { key: "euglena", size: 21, speed: 2.85, maxHp: 130, damage: 15 },
+  { key: "yeast", size: 24, speed: 2.55, maxHp: 155, damage: 17 },
+  { key: "protozoa", size: 28, speed: 2.7, maxHp: 182, damage: 20 },
+  { key: "macrocell", size: 34, speed: 2.45, maxHp: 225, damage: 24 }
+];
+
 const server = http.createServer((req, res) => {
   if (req.url === "/") {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
@@ -47,8 +57,14 @@ function randomSpawn() {
   };
 }
 
+function getFormByLevel(level) {
+  const idx = clamp(Math.floor(level) - 1, 0, FORM_ORDER.length - 1);
+  return FORM_ORDER[idx];
+}
+
 function makeBaseEntity(name = "Oyuncu") {
   const spawn = randomSpawn();
+  const baseForm = getFormByLevel(1);
 
   return {
     id: randomUUID(),
@@ -61,13 +77,13 @@ function makeBaseEntity(name = "Oyuncu") {
     angle: 0,
 
     level: 1,
-    formKey: "mycoplasma",
-    size: 12,
-    speed: 2.8,
-    damage: 10,
+    formKey: baseForm.key,
+    size: baseForm.size,
+    speed: baseForm.speed,
+    damage: baseForm.damage,
 
-    maxHp: 100,
-    hp: 100,
+    maxHp: baseForm.maxHp,
+    hp: baseForm.maxHp,
     xp: 0,
     xpNeed: 30,
     score: 0,
@@ -105,31 +121,28 @@ function makeBot(index) {
   };
 
   bot.level = Math.floor(rand(1, 6));
-  applyStatsFromLevel(bot);
+  applyStatsFromLevel(bot, false);
   bot.hp = bot.maxHp;
 
   return bot;
 }
 
-function applyStatsFromLevel(entity) {
-  const forms = [
-    { key: "mycoplasma", size: 12, speed: 2.8, maxHp: 100, damage: 10 },
-    { key: "amoeba", size: 17, speed: 2.6, maxHp: 122, damage: 13 },
-    { key: "paramecium", size: 15, speed: 2.95, maxHp: 96, damage: 11 },
-    { key: "euglena", size: 18, speed: 2.75, maxHp: 106, damage: 12 },
-    { key: "yeast", size: 21, speed: 2.45, maxHp: 132, damage: 14 },
-    { key: "protozoa", size: 24, speed: 2.55, maxHp: 150, damage: 16 },
-    { key: "macrocell", size: 28, speed: 2.3, maxHp: 180, damage: 18 }
-  ];
+function applyStatsFromLevel(entity, preserveHpRatio = true) {
+  const form = getFormByLevel(entity.level);
+  const oldMaxHp = entity.maxHp || form.maxHp;
+  const oldHpRatio = oldMaxHp > 0 ? entity.hp / oldMaxHp : 1;
 
-  const idx = clamp(entity.level - 1, 0, forms.length - 1);
-  const f = forms[idx];
+  entity.formKey = form.key;
+  entity.size = form.size;
+  entity.speed = form.speed;
+  entity.damage = form.damage;
+  entity.maxHp = form.maxHp;
 
-  entity.formKey = f.key;
-  entity.size = f.size + entity.level * 2;
-  entity.speed = f.speed;
-  entity.damage = f.damage;
-  entity.maxHp = f.maxHp + entity.level * 20;
+  if (preserveHpRatio) {
+    entity.hp = clamp(entity.maxHp * oldHpRatio, 0, entity.maxHp);
+  } else {
+    entity.hp = entity.maxHp;
+  }
 
   if (entity.formKey === "macrocell") {
     entity.xp = Math.min(entity.xp, 200);
@@ -151,7 +164,7 @@ function resetEntity(entity) {
   entity.xpNeed = 30;
   entity.score = 0;
 
-  applyStatsFromLevel(entity);
+  applyStatsFromLevel(entity, false);
 
   entity.hp = entity.maxHp;
   entity.inHideZone = false;
@@ -256,12 +269,12 @@ function killEntity(victim, killer = null) {
 }
 
 function applyEvolutionIfNeeded(entity) {
-  while (entity.level < 7 && entity.xp >= entity.xpNeed) {
+  while (entity.level < FORM_ORDER.length && entity.xp >= entity.xpNeed) {
     entity.xp -= entity.xpNeed;
     entity.xpNeed = Math.min(200, Math.floor(entity.xpNeed * 1.4));
     entity.level += 1;
-    applyStatsFromLevel(entity);
-    entity.hp = Math.min(entity.maxHp, entity.hp + 20);
+    applyStatsFromLevel(entity, true);
+    entity.hp = clamp(entity.hp + 24, 0, entity.maxHp);
   }
 
   if (entity.formKey === "macrocell") {
@@ -271,7 +284,9 @@ function applyEvolutionIfNeeded(entity) {
 }
 
 function chooseBotTarget(bot) {
-  const entities = allEntities().filter(e => e.id !== bot.id && !e.isDead && !e.inHideZone && !e.isHiddenFromPlayers);
+  const entities = allEntities().filter(
+    e => e.id !== bot.id && !e.isDead && !e.inHideZone && !e.isHiddenFromPlayers
+  );
 
   if (entities.length === 0) {
     bot.targetId = null;
@@ -348,7 +363,7 @@ function updateBots() {
 }
 
 function handlePvP() {
-  const list = allEntities().filter((p) => !p.isDead);
+  const list = allEntities().filter(p => !p.isDead);
 
   for (let i = 0; i < list.length; i++) {
     for (let j = i + 1; j < list.length; j++) {
@@ -468,19 +483,10 @@ wss.on("connection", (ws) => {
       }
 
       if (msg.type === "sync") {
-        if (typeof msg.level === "number") p.level = clamp(Math.floor(msg.level), 1, 999);
-        if (typeof msg.formKey === "string") p.formKey = msg.formKey.slice(0, 32);
-        if (typeof msg.size === "number") p.size = clamp(msg.size, 4, 999);
-        if (typeof msg.speed === "number") p.speed = clamp(msg.speed, 0.1, 20);
-        if (typeof msg.damage === "number") p.damage = clamp(msg.damage, 1, 9999);
-        if (typeof msg.hp === "number") p.hp = clamp(msg.hp, 0, 999999);
-        if (typeof msg.maxHp === "number") {
-          p.maxHp = clamp(msg.maxHp, 1, 999999);
-          p.hp = clamp(p.hp, 0, p.maxHp);
-        }
-        if (typeof msg.score === "number") p.score = clamp(msg.score, 0, 999999999);
         if (typeof msg.xp === "number") p.xp = clamp(msg.xp, 0, 999999);
         if (typeof msg.xpNeed === "number") p.xpNeed = clamp(msg.xpNeed, 1, 999999);
+        if (typeof msg.score === "number") p.score = clamp(msg.score, 0, 999999999);
+        if (typeof msg.hp === "number") p.hp = clamp(msg.hp, 0, p.maxHp);
         if (typeof msg.x === "number") p.x = clamp(msg.x, 0, WORLD.width);
         if (typeof msg.y === "number") p.y = clamp(msg.y, 0, WORLD.height);
         if (typeof msg.angle === "number") p.angle = msg.angle;
@@ -488,6 +494,10 @@ wss.on("connection", (ws) => {
           p.inHideZone = msg.inHideZone;
           p.isHiddenFromPlayers = msg.inHideZone;
         }
+
+        applyEvolutionIfNeeded(p);
+        applyStatsFromLevel(p, true);
+        p.hp = clamp(p.hp, 0, p.maxHp);
       }
     } catch (e) {
       console.log("Mesaj parse hatası:", e.message);
