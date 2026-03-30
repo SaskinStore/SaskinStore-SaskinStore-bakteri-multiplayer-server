@@ -244,7 +244,7 @@ function grantKillRewards(killer) {
   killer.xp = clamp(killer.xp + 25, 0, 999999);
   applyEvolutionIfNeeded(killer);
   killer.hp = clamp(killer.hp + killer.maxHp * 0.18, 0, killer.maxHp);
-  killer.pvpCooldown = 12;
+  killer.pvpCooldown = 6;
 }
 
 function killEntity(victim, killer = null) {
@@ -499,11 +499,7 @@ wss.on("connection", (ws) => {
 
         if (typeof msg.hp === "number") {
           const clientHp = clamp(msg.hp, 0, p.maxHp);
-          if (p.pvpCooldown > 0) {
-            p.hp = Math.max(p.hp, clientHp);
-          } else {
-            p.hp = clientHp;
-          }
+          p.hp = clientHp;
         }
 
         if (typeof msg.x === "number") p.x = clamp(msg.x, 0, WORLD.width);
