@@ -244,7 +244,7 @@ function grantKillRewards(killer) {
   killer.xp = clamp(killer.xp + 25, 0, 999999);
   applyEvolutionIfNeeded(killer);
   killer.hp = clamp(killer.hp + killer.maxHp * 0.18, 0, killer.maxHp);
-  killer.pvpCooldown = 6;
+  killer.pvpCooldown = 12;
 }
 
 function killEntity(victim, killer = null) {
@@ -483,13 +483,33 @@ wss.on("connection", (ws) => {
       }
 
       if (msg.type === "sync") {
-        if (typeof msg.xp === "number") p.xp = clamp(msg.xp, 0, 999999);
-        if (typeof msg.xpNeed === "number") p.xpNeed = clamp(msg.xpNeed, 1, 999999);
-        if (typeof msg.score === "number") p.score = clamp(msg.score, 0, 999999999);
-        if (typeof msg.hp === "number") p.hp = clamp(msg.hp, 0, p.maxHp);
+        if (typeof msg.xp === "number") {
+          const clientXp = clamp(msg.xp, 0, 999999);
+          p.xp = Math.max(p.xp, clientXp);
+        }
+
+        if (typeof msg.xpNeed === "number") {
+          p.xpNeed = clamp(msg.xpNeed, 1, 999999);
+        }
+
+        if (typeof msg.score === "number") {
+          const clientScore = clamp(msg.score, 0, 999999999);
+          p.score = Math.max(p.score, clientScore);
+        }
+
+        if (typeof msg.hp === "number") {
+          const clientHp = clamp(msg.hp, 0, p.maxHp);
+          if (p.pvpCooldown > 0) {
+            p.hp = Math.max(p.hp, clientHp);
+          } else {
+            p.hp = clientHp;
+          }
+        }
+
         if (typeof msg.x === "number") p.x = clamp(msg.x, 0, WORLD.width);
         if (typeof msg.y === "number") p.y = clamp(msg.y, 0, WORLD.height);
         if (typeof msg.angle === "number") p.angle = msg.angle;
+
         if (typeof msg.inHideZone === "boolean") {
           p.inHideZone = msg.inHideZone;
           p.isHiddenFromPlayers = msg.inHideZone;
